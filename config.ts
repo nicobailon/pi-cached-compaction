@@ -13,7 +13,7 @@ export interface CachedCompactionConfig {
 	minContextTokens: number;
 }
 
-const DEFAULTS: CachedCompactionConfig = { cacheRetention: "long", compactBeforeExpiry: true, minContextTokens: 50_000 };
+const DEFAULTS: CachedCompactionConfig = { cacheRetention: "long", compactBeforeExpiry: true, minContextTokens: 140_000 };
 
 const settingsPath = () => join(getAgentDir(), "settings.json");
 

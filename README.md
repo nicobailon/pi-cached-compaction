@@ -93,7 +93,7 @@ Add a `cachedCompaction` key to `~/.pi/agent/settings.json`. Project settings fi
 | Setting | Default | What it does |
 |---|---|---|
 | `compactBeforeExpiry` | `true` | compact 20 s before the cache expires, when idle |
-| `minContextTokens` | `50000` | the smallest context worth compacting before expiry |
+| `minContextTokens` | `140000` | the smallest context worth compacting before expiry |
 | `cacheRetention` | `"long"` | ask for the longer cache in interactive sessions (2× writes on Anthropic); `"short"` keeps Pi's default |
 
 ```json
@@ -110,7 +110,7 @@ If you step away, the cache expires and your next message pays to write the whol
 
 - Pi is idle with nothing queued,
 - Pi's auto-compaction is on,
-- the context holds at least 50k tokens (`minContextTokens`),
+- the context holds at least 140k tokens (`minContextTokens`),
 - and the cached path is available.
 
 Otherwise it does nothing and the cache cools. Models without a [countdown](#what-youll-see) never compact before expiry.

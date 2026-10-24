@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Compacting before expiry waits for bigger sessions** — It now starts at 140k tokens of context instead of 50k, so shorter sessions keep their full history through a break. Set `minContextTokens` under `cachedCompaction` in `~/.pi/agent/settings.json` to change it.
+
 ## [0.1.0] - 2026-10-22
 
 First release. Needs Pi 0.87.0 or newer.
