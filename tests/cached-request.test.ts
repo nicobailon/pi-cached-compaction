@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { checkpointSummary, keptStart, summaryPayload, trailingMessages, withSharedPrefixCache } from "../cached-request.ts";
+import { checkpointSummary, keptStart, summaryPayload, trailingMessages, withKimiLongCache, withSharedPrefixCache } from "../cached-request.ts";
 
 const user = (text: string, timestamp: number) => ({ role: "user", content: text, timestamp }) as AgentMessage;
 const entry = (id: string, message: AgentMessage) => ({ type: "message", id, parentId: null, timestamp: "", message }) as SessionEntry;
@@ -159,6 +159,18 @@ test("GPT long retention caches the system prompt for 12 hours under the project
 	// Pi keeps the key but drops the cache options for endpoints that reject them, such as Sign in with ChatGPT.
 	const noOptions = { model: "gpt-6-luna", prompt_cache_key: "session-1", input: request.input };
 	assert.equal(withSharedPrefixCache(noOptions, "pi-project"), noOptions);
+});
+
+test("a Kimi request gets the 1-hour cache option only when Pi asked for its longer cache", () => {
+	const messages = [{ role: "user", content: "hi" }];
+	assert.deepEqual(withKimiLongCache({ model: "kimi-k3", messages, prompt_cache_retention: "24h" }), {
+		model: "kimi-k3",
+		messages,
+		prompt_cache_retention: "24h",
+		prompt_cache_options: { mode: "implicit", ttl: "1h" },
+	});
+	const short = { model: "kimi-k3", messages };
+	assert.equal(withKimiLongCache(short), short);
 });
 
 test("the summary ends with one set of file lists, merged with the previous compaction's, even when the model copied the old ones", () => {

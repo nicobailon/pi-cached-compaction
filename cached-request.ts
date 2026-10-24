@@ -135,6 +135,16 @@ export function withSharedPrefixCache(payload: Payload, cacheKey: string): Paylo
 }
 
 /**
+ * Kimi's 1-hour cache, for a request where Pi asked for its longer cache. Pi asks with OpenAI's prompt_cache_retention,
+ * and Kimi takes the lifetime from prompt_cache_options instead. Pi leaves that field out when the request turns caching
+ * off or the model's compat turns long retention off.
+ */
+export function withKimiLongCache(payload: Payload): Payload {
+	if (payload.prompt_cache_retention !== "24h" || "prompt_cache_options" in payload) return payload;
+	return { ...payload, prompt_cache_options: { mode: "implicit", ttl: "1h" } };
+}
+
+/**
  * The summary request's payload, built from Pi's `params` the way the agent's request was: with the shared prefix
  * key when `sharedKey` is set, and with the top-level fields only the captured request has, which extensions earlier
  * in the before_provider_request chain add (codex-fast adds service_tier) and the summary request skips. Returned only

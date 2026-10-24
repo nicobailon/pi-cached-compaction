@@ -61,7 +61,7 @@ Then run `/reload`. It needs Pi 0.87.0 or newer, and everything is on by default
 
 ![The expanded card: "13:48:54 /compact: Pi's compaction, request field "reasoning" differs. cache: lifetime 30 min (OpenAI's minimum), 30 min left. last request: 4 s ago, 20 messages, 2k prompt tokens, 1 new since. request: thinking low, shared 12h prefix. last request had: {"effort":"high","summary":"auto"}. summary request had: {"effort":"low","summary":"auto"}. 13:48:59 Pi's compaction saved: 0% of 923 from cache, 384 out, $0.0003, summary 1243 chars. log: ~/.pi/agent/cached-compaction.jsonl"](media/card-fallback.png)
 
-**The countdown** in the footer shows how long the cache has left. Sending a message restarts it, and it goes `⏱ 59m … ⏱ 2m … ⏱ 0:25` (in the warning color for the last 30 seconds), then `cache cold`. In powerline-footer it shows in the `extension_statuses` segment. The lifetime comes from the cache tier the provider reports writing (Anthropic and pi-claude-bridge report it), else the model's declared lifetime, else OpenAI's 30-minute minimum for GPT-5.6 and later. Models with none of those show no countdown.
+**The countdown** in the footer shows how long the cache has left. Sending a message restarts it, and it goes `⏱ 59m … ⏱ 2m … ⏱ 0:25` (in the warning color for the last 30 seconds), then `cache cold`. In powerline-footer it shows in the `extension_statuses` segment. The lifetime comes from the cache tier the provider reports writing (Anthropic and pi-claude-bridge report it), else the model's declared lifetime, else OpenAI's 30-minute minimum for GPT-5.6 and later, else Kimi K3's 5-minute or 1-hour option. Models with none of those show no countdown.
 
 **`/cached-compaction`** shows the cache right now, whether the next compaction would take the cached path, and this session's log:
 
@@ -94,7 +94,7 @@ Add a `cachedCompaction` key to `~/.pi/agent/settings.json`. Project settings fi
 |---|---|---|
 | `compactBeforeExpiry` | `true` | compact 20 s before the cache expires, when idle |
 | `minContextTokens` | `140000` | the smallest context worth compacting before expiry |
-| `cacheRetention` | `"long"` | ask for the longer cache in interactive sessions (2× writes on Anthropic); `"short"` keeps Pi's default |
+| `cacheRetention` | `"long"` | ask for the longer cache in interactive sessions (2× writes on Anthropic and Kimi); `"short"` keeps Pi's default |
 
 ```json
 {
@@ -117,7 +117,7 @@ Otherwise it does nothing and the cache cools. Models without a [countdown](#wha
 
 The threshold is in tokens rather than percent because rewriting an expired cache costs in proportion to its size, and on 1M-token models a percentage would almost never trigger.
 
-**The longer cache.** A 5-minute cache expires during most breaks, so in interactive sessions the extension asks for the longer one (`PI_CACHE_RETENTION=long`) unless you've set that variable yourself. That's 1 hour instead of 5 minutes on Anthropic, and a 12-hour shared system prompt on GPT-5.6 and later (see [Providers](#providers)). It isn't free on Anthropic: writing a 1-hour cache costs 2× the input price instead of 1.25×, though reads cost the same. Headless runs (`pi -p`, JSON mode, subagent processes) keep the short cache, since nobody pauses there. The choice is made once per session, because moving a cache up a tier means writing all of it again.
+**The longer cache.** A 5-minute cache expires during most breaks, so in interactive sessions the extension asks for the longer one (`PI_CACHE_RETENTION=long`) unless you've set that variable yourself. That's 1 hour instead of 5 minutes on Anthropic and Kimi K3, and a 12-hour shared system prompt on GPT-5.6 and later (see [Providers](#providers)). It isn't free: writing a 1-hour cache costs 2× the input price, instead of 1.25× on Anthropic and 1× on Kimi, though reads cost the same. Headless runs (`pi -p`, JSON mode, subagent processes) keep the short cache, since nobody pauses there. The choice is made once per session, because moving a cache up a tier means writing all of it again.
 
 ## Providers
 
@@ -128,6 +128,7 @@ The threshold is in tokens rather than percent because rewriting an expired cach
 | Claude on opencode-go | yes | yes, 1 hour | 1 hour instead of 5 minutes |
 | GPT-5.6+ on `openai` | yes, not tested live yet | yes, 30 minutes | 12-hour shared system prompt |
 | GPT-5.6+ on opencode-go | yes | after `/cached-compaction cache-flag` (below) | after `cache-flag` |
+| Kimi K3 on `moonshotai` and `moonshotai-cn` | yes, not tested live yet | yes, 5 minutes or 1 hour | 1 hour instead of 5 minutes |
 | Other Responses and Chat Completions APIs | yes | only with a declared lifetime (`modelOverrides.promptCache`) | the provider's own |
 | `openai-codex` (ChatGPT sign-in) | yes, not tested live yet | no, there's no documented lifetime | no |
 | Google and others | no, Pi's compaction runs | no | no |
@@ -144,6 +145,8 @@ Claude Code bills by subscription, so the bridge prices these models at $0. Here
 | Conversation | 30 minutes | 30 minutes (the countdown follows this) |
 
 The 12-hour write costs an extra 1.25× of that prefix once, and the second session in the project that day earns it back. With a full set of extensions the prefix is around 19k tokens. Pi prices every cache write at the 30-minute rate, so its cost display understates the 12-hour part.
+
+**Kimi K3 on Moonshot's API.** Kimi picks a cache lifetime of 5 minutes or 1 hour per request, and keeps a cache at the lifetime it was first written with. Pi doesn't send that option, so with the longer cache the extension adds it, and the countdown follows the lifetime it asked for. Pi's model catalog prices Kimi's cache writes at $0, so its cost display and the card leave them out. Kimi through opencode-go, OpenRouter, or Kimi For Coding keeps the host's own caching.
 
 **opencode-go.** Pi doesn't send OpenAI's cache options to opencode-go's GPT models, so they get no 12-hour prefix and no countdown until you turn the options on. Run `/cached-compaction cache-flag` and it adds them to `~/.pi/agent/models.json` for every opencode-go model that has them on `openai`, then switches the current session over. It rewrites the file as plain JSON, so if yours has comments it stops and you add this by hand:
 

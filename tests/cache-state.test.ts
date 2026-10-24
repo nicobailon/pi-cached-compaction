@@ -44,3 +44,22 @@ test("the lifetime is the tier the latest write reported, the model's figure for
 	const gpt = { provider: "openai", id: "gpt-6-luna", api: "openai-responses", compat: { supportsExplicitPromptCacheMode: true } } as Model<Api>;
 	assert.deepEqual(lifetime(gpt, [reply("a", 1, { cacheRead: 500 })]), { ms: 1_800_000, source: "OpenAI's minimum" });
 });
+
+test("Kimi K3 on Moonshot's API caches for 5 minutes, or 1 hour when Pi asks for the longer cache", () => {
+	const lifetime = (model: object) => cacheState(model as Model<Api>, [reply("a", 1, { cacheRead: 500 })]).lifetime;
+	const kimi = { provider: "moonshotai", id: "kimi-k3", api: "openai-completions", baseUrl: "https://api.moonshot.ai/v1" };
+	const before = process.env.PI_CACHE_RETENTION;
+	try {
+		delete process.env.PI_CACHE_RETENTION;
+		assert.deepEqual(lifetime(kimi), { ms: 300_000, source: "Kimi's default" });
+		process.env.PI_CACHE_RETENTION = "long";
+		assert.deepEqual(lifetime(kimi), { ms: 3_600_000, source: "Kimi's 1-hour option" });
+		assert.deepEqual(lifetime({ ...kimi, compat: { supportsLongCacheRetention: false } }), { ms: 300_000, source: "Kimi's default" });
+		// K2 models have no cache-write tiers, and other hosts of K3 don't document the option.
+		assert.equal(lifetime({ ...kimi, id: "kimi-k2.6" }), undefined);
+		assert.equal(lifetime({ ...kimi, provider: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1" }), undefined);
+	} finally {
+		if (before === undefined) delete process.env.PI_CACHE_RETENTION;
+		else process.env.PI_CACHE_RETENTION = before;
+	}
+});

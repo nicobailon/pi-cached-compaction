@@ -1,4 +1,4 @@
-import type { Api, Model, OpenAIResponsesCompat } from "@earendil-works/pi-ai";
+import type { Api, Model, OpenAICompletionsCompat, OpenAIResponsesCompat } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 /** Anthropic's cache lifetimes, for a provider that reports the tier it wrote but declares no lifetime (the Claude bridge). */
@@ -9,10 +9,17 @@ const REPORTED_TIER_SECONDS = { short: 300, long: 3600 } as const;
  * state a typical lifetime.
  */
 const OPENAI_MIN_LIFETIME_SECONDS = 1800;
+/** Kimi K3's cache lifetimes: 5 minutes by default, 1 hour when the request's prompt_cache_options asks for it. */
+const KIMI_TTL_SECONDS = { short: 300, long: 3600 } as const;
 
 /** GPT-5.6 and later: Pi sends them prompt_cache_options, and OpenAI keeps their cache at least 30 minutes. */
 export function hasExplicitPromptCache(model: Model<Api>): boolean {
 	return model.api === "openai-responses" && (model.compat as OpenAIResponsesCompat | undefined)?.supportsExplicitPromptCacheMode === true;
+}
+
+/** Kimi K3 models on Moonshot's own API, which choose their cache lifetime with prompt_cache_options. */
+export function isKimiOnMoonshot(model: Model<Api>): boolean {
+	return model.api === "openai-completions" && /^https:\/\/api\.moonshot\.(ai|cn)\//.test(model.baseUrl) && model.id.startsWith("kimi-k3");
 }
 
 export interface CacheState {
@@ -55,6 +62,11 @@ export function cacheState(model: Model<Api>, entries: SessionEntry[]): CacheSta
 	if (declared !== undefined) lifetime = { ms: declared * 1000, source: "declared by the model" };
 	else if (reported) lifetime = { ms: REPORTED_TIER_SECONDS[reported] * 1000, source: "reported by the provider" };
 	else if (hasExplicitPromptCache(model)) lifetime = { ms: OPENAI_MIN_LIFETIME_SECONDS * 1000, source: "OpenAI's minimum" };
+	else if (isKimiOnMoonshot(model)) {
+		// Pi asks for the longer cache only where the model's compat allows it, and the request then gets Kimi's 1-hour option.
+		const long = process.env.PI_CACHE_RETENTION === "long" && (model.compat as OpenAICompletionsCompat | undefined)?.supportsLongCacheRetention !== false;
+		lifetime = { ms: KIMI_TTL_SECONDS[long ? "long" : "short"] * 1000, source: long ? "Kimi's 1-hour option" : "Kimi's default" };
+	}
 	const expiresAt = lifetime && refreshedAt !== undefined ? refreshedAt + lifetime.ms : undefined;
 	return { lifetime, cached: refreshedAt !== undefined, expiresAt, replied };
 }

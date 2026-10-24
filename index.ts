@@ -5,7 +5,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { calculateCost, type Api, type AssistantMessage, type Model, type Usage } from "@earendil-works/pi-ai";
 import { convertToLlm, getAgentDir, getLastAssistantUsage, getLatestCompactionEntry, keyHint, type ExtensionAPI, type ExtensionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { cacheState, hasExplicitPromptCache, type CacheState } from "./cache-state.ts";
+import { cacheState, hasExplicitPromptCache, isKimiOnMoonshot, type CacheState } from "./cache-state.ts";
 import {
 	checkpointSummary,
 	isPlainObject,
@@ -15,6 +15,7 @@ import {
 	summaryInstruction,
 	summaryPayload,
 	trailingMessages,
+	withKimiLongCache,
 	withSharedPrefixCache,
 	type CachedPrefix,
 	type Payload,
@@ -249,7 +250,8 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		if (!ctx.model || !isPlainObject(event.payload)) return;
 		// Cache-warming replays pass through here too, so they keep the same breakpoints and key.
 		const sharedKey = sharedPrefixKey(ctx.model, ctx.cwd);
-		const payload = sharedKey ? withSharedPrefixCache(event.payload, sharedKey) : event.payload;
+		let payload = sharedKey ? withSharedPrefixCache(event.payload, sharedKey) : event.payload;
+		if (isKimiOnMoonshot(ctx.model)) payload = withKimiLongCache(payload);
 		if (transcript) captured = { transcript, payload, model: ctx.model, at: Date.now() };
 		return payload === event.payload ? undefined : payload;
 	});
