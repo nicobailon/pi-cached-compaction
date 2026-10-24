@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 package-lock.json
 progress.md
 .DS_Store
