@@ -23,7 +23,6 @@ test("the cache expires a lifetime after the latest cached request or cache-warm
 	assert.deepEqual(cacheState(declared, [cached]), { lifetime: { ms: 300_000, source: "declared by the model" }, cached: true, expiresAt: 301_000, replied: true });
 	assert.equal(cacheState(declared, [cached, warm]).expiresAt, 500_000);
 	assert.deepEqual(cacheState(declared, [reply("a", 1_000, {})]), { lifetime: { ms: 300_000, source: "declared by the model" }, cached: false, expiresAt: undefined, replied: true });
-	// A failed request may never have reached the cache.
 	assert.equal(cacheState(declared, [cached, reply("b", 9_000, {}, "error")]).expiresAt, 301_000);
 	assert.deepEqual(cacheState(declared, [cached, compaction]), { lifetime: { ms: 300_000, source: "declared by the model" }, cached: false, expiresAt: undefined, replied: false });
 });
@@ -35,7 +34,6 @@ test("the lifetime is the tier the latest write reported, the model's figure for
 	assert.deepEqual(lifetime(claude, [long]), { ms: 3_600_000, source: "reported by the provider" });
 	assert.deepEqual(lifetime(claude, [long, reply("b", 2, { cacheWrite: 40, cacheWrite1h: 0 })]), { ms: 300_000, source: "reported by the provider" });
 	assert.deepEqual(lifetime(claude, [long, reply("b", 2, { cacheRead: 500 })]), { ms: 3_600_000, source: "reported by the provider" }, "a turn that only read keeps the tier");
-	// Without a lifetime the state still says the request cached, but gives no expiry.
 	assert.deepEqual(cacheState(claude, [reply("a", 1, { cacheWrite: 500 })]), { lifetime: undefined, cached: true, expiresAt: undefined, replied: true });
 	assert.deepEqual(lifetime(claude, [reply("a", 1, { cacheWrite: 500, cacheWrite1h: 500 }, "error")]), { ms: 3_600_000, source: "reported by the provider" }, "a failed turn still reports the tier it wrote");
 	assert.equal(lifetime(claude, [long, compaction]), undefined);
@@ -55,7 +53,6 @@ test("Kimi K3 on Moonshot's API caches for 5 minutes, or 1 hour when Pi asks for
 		process.env.PI_CACHE_RETENTION = "long";
 		assert.deepEqual(lifetime(kimi), { ms: 3_600_000, source: "Kimi's 1-hour option" });
 		assert.deepEqual(lifetime({ ...kimi, compat: { supportsLongCacheRetention: false } }), { ms: 300_000, source: "Kimi's default" });
-		// K2 models have no cache-write tiers, and other hosts of K3 don't document the option.
 		assert.equal(lifetime({ ...kimi, id: "kimi-k2.6" }), undefined);
 		assert.equal(lifetime({ ...kimi, provider: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1" }), undefined);
 	} finally {

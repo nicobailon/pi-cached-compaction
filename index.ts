@@ -41,50 +41,33 @@ import {
 
 interface CapturedRequest {
 	transcript: AgentMessage[];
-	/** The provider payload, compared before sending. Absent for the Claude bridge, which builds no payload Pi sees and checks the prefix itself. */
 	payload?: Payload;
 	model: Model<Api>;
 	at: number;
 }
 
-/** A compaction that can take the cached path: the request to extend, what the branch added since, and its cache. */
 interface CachedPath {
 	request: CapturedRequest;
-	/** What the summary request must extend, checked before it is sent. Undefined for the Claude bridge, which forks instead. */
 	prefix?: CachedPrefix;
 	trailing: AgentMessage[];
 	cache: CacheState;
 }
 
 const STATUS_KEY = "cached-compaction";
-/** Session entry for the inline card: shown in the chat, never sent to the model. */
 const CARD_TYPE = "cached-compaction";
 const PREFIX_MISMATCH = "pi-cached-compaction: request prefix differs from the cached request";
-/** The Claude bridge's provider API. Its requests run in Claude Code, so Pi never sees a payload. */
 const BRIDGE_API = "claude-bridge";
-/** The bridge's documented header for running one request on a copy of the live Claude Code conversation. */
 const FORK_REQUEST_HEADER = "x-claude-bridge-fork";
-/** How long before expiry the idle compaction starts, leaving time for the request to reach the provider. */
 const EXPIRY_LEAD_MS = 20_000;
 const WARNING_MS = 30_000;
-/** Records the retention this extension chose, so it can tell its own value (also inherited by child Pi processes) from the user's. */
 const RETENTION_MARKER = "PI_CACHED_COMPACTION_RETENTION";
-/** Set once an interactive session in this process chose long retention. In-process headless children share the environment. */
 const INTERACTIVE_OWNER = Symbol.for("pi-cached-compaction.interactive-long-retention");
 
-/**
- * OpenAI's own Responses API. There, tool_choice is not part of the cached prefix, and OpenAI
- * recommends tool_choice "none" to disable tools while keeping the cache; on Anthropic the same
- * change invalidates the message cache.
- */
+// Only OpenAI keeps tool_choice out of the cached prefix; elsewhere changing it costs cache.
 function isOpenAiResponses(model: Model<Api>): boolean {
 	return model.provider === "openai" && model.api === "openai-responses";
 }
 
-/**
- * Long retention on GPT-5.6 and later caches the shared prefix for 12 hours under one key per project,
- * so later sessions in the project read it. Undefined when the request keeps Pi's caching as is.
- */
 function sharedPrefixKey(model: Model<Api>, cwd: string): string | undefined {
 	if (!hasExplicitPromptCache(model) || process.env.PI_CACHE_RETENTION !== "long") return undefined;
 	return `pi-${createHash("sha256").update(cwd).digest("hex").slice(0, 40)}`;
@@ -94,10 +77,6 @@ function traceUsage(usage: Usage): TraceUsage {
 	return { input: usage.input, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, output: usage.output, cost: usage.cost.total };
 }
 
-/**
- * The 1-hour tier only pays off across human pauses, and a cache cannot move up a tier without
- * a full rewrite, so the choice is made once per session: long when interactive, short when headless.
- */
 function applyRetention(preferLong: boolean, interactive: boolean): void {
 	const current = process.env.PI_CACHE_RETENTION;
 	if (current !== undefined && process.env[RETENTION_MARKER] !== current) return;
@@ -119,9 +98,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	let captured: CapturedRequest | undefined;
 	let ticker: ReturnType<typeof setInterval> | undefined;
 	let expiryCompaction = false;
-	/** What started the compaction in progress, so its outcome is logged against the same trigger. */
 	let compactionTrigger: Trigger | undefined;
-	/** This extension's decision for the compaction in progress, shown in the card with its outcome. */
 	let decision: Extract<TraceRecord, { event: "compact" }> | undefined;
 	let traceError: string | undefined;
 
@@ -185,12 +162,10 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		if (contextTokens < config.minContextTokens) {
 			return skip(`the context holds ${formatTokens(contextTokens)} tokens, under minContextTokens (${formatTokens(config.minContextTokens)})`);
 		}
-		// A compaction started here is cancelled unless it takes the cached path, so don't start one that can't.
 		const check = checkCachedPath(ctx.sessionManager.getBranch(), ctx.model);
 		if ("reason" in check) return skip(check.reason);
 		trace(ctx, { event: "expiry", action: "compact", secondsLeft, contextTokens });
 		expiryCompaction = true;
-		// The provider reads the cache when the request starts; counting down past that point would mislead.
 		stopTimer(ctx);
 		if (ctx.hasUI) {
 			ctx.ui.notify(`Prompt cache expires in ${secondsLeft}s with ${formatTokens(contextTokens)} tokens of context. Compacting now, while the cache is warm.`, "info");
@@ -201,7 +176,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			},
 			onError: () => {
 				expiryCompaction = false;
-				// Bring the countdown back without another attempt on the same cache.
 				if (ctx.isIdle()) startTimer(ctx, false);
 			},
 		});
@@ -217,7 +191,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		let ticks = 0;
 		let attempted = !compactAtExpiry;
 		const tick = () => {
-			// Pi's idle cache warmer can push expiry out; re-read it periodically and before acting on it.
 			if (++ticks % 15 === 0 || expiresAt - Date.now() <= EXPIRY_LEAD_MS) expiresAt = readExpiry() ?? expiresAt;
 			const remaining = expiresAt - Date.now();
 			const text = formatRemaining(remaining);
@@ -238,8 +211,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		tick();
 	};
 
-	// context_with_system fires only for main-agent LLM calls, right before their payload.
-	// Cache-warming replays and other extensions' one-off calls send a payload without it.
 	pi.on("context_with_system", (event) => {
 		pendingTranscript = [...event.messages];
 	});
@@ -247,7 +218,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		const transcript = pendingTranscript;
 		pendingTranscript = undefined;
 		if (!ctx.model || !isPlainObject(event.payload)) return;
-		// Cache-warming replays pass through here too, so they keep the same breakpoints and key.
 		const sharedKey = sharedPrefixKey(ctx.model, ctx.cwd);
 		let payload = sharedKey ? withSharedPrefixCache(event.payload, sharedKey) : event.payload;
 		if (isKimiOnMoonshot(ctx.model)) payload = withKimiLongCache(payload);
@@ -257,11 +227,9 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	pi.on("message_start", (event, ctx) => {
 		const transcript = pendingTranscript;
 		pendingTranscript = undefined;
-		// The bridge never sends a payload, so its request is captured once its reply starts.
 		if (transcript && event.message.role === "assistant" && ctx.model?.api === BRIDGE_API) captured = { transcript, model: ctx.model, at: Date.now() };
 	});
 	pi.on("session_start", (_event, ctx) => {
-		// Providers read PI_CACHE_RETENTION on every request, so this runs before the session's first one.
 		applyRetention(config.cacheRetention === "long", ctx.hasUI);
 		startTimer(ctx);
 	});
@@ -278,8 +246,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			usage: entry.usage ? traceUsage(entry.usage) : undefined,
 			summaryChars: entry.summary.length,
 		});
-		// Interactive mode redraws the chat on compaction_end, which Pi emits after this handler
-		// returns; a card appended now would be drawn above the summary.
+		// Pi redraws the chat after this handler returns; appending now would put the card above the summary.
 		const records = decision ? [decision, result] : [result];
 		setTimeout(() => showCard(records), 0);
 		decision = undefined;
@@ -288,8 +255,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	});
 	pi.on("session_compact_failed", (event, ctx) => {
 		const failed = trace(ctx, { event: "failed", trigger: compactionTrigger ?? event.reason, aborted: event.aborted, error: event.errorMessage });
-		// Without a decision Pi failed before this extension ran ("Nothing to compact") and shows its own error.
-		// A cancel this extension chose reaches Pi as an abort, which the decision line already explains.
 		if (decision) showCard(decision.outcome === "cancelled" && event.aborted ? [decision] : [decision, failed]);
 		decision = undefined;
 		compactionTrigger = undefined;
@@ -301,7 +266,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	});
 	pi.on("session_shutdown", (_event, ctx) => stopTimer(ctx));
 
-	/** Whether a compaction now could take the cached path, short of the prefix check that runs when it does. */
 	const checkCachedPath = (entries: SessionEntry[], model: Model<Api> | undefined): CachedPath | { reason: string } => {
 		const request = captured;
 		if (!request) return { reason: "no request since the session started or compacted, or since the model or branch changed" };
@@ -314,7 +278,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		}
 		const trailing = trailingMessages(entries, request.transcript);
 		if ("reason" in trailing) return { reason: `the conversation changed since the last request: ${trailing.reason}` };
-		// A cold cache makes the full prompt cost more than Pi's compaction, which sends only the summarized messages.
 		const cache = cacheState(request.model, entries);
 		if (!cache.cached) return { reason: "the last request did not use the prompt cache" };
 		if (cache.expiresAt !== undefined && Date.now() >= cache.expiresAt) return { reason: "the prompt cache has expired" };
@@ -322,7 +285,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_before_compact", async (event, ctx) => {
-		// A compaction started for an expiring cache only pays off on the cached path.
 		const fromExpiry = expiryCompaction;
 		const trigger: Trigger = fromExpiry ? "expiry" : event.reason;
 		compactionTrigger = trigger;
@@ -358,7 +320,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			expiresInSeconds: cache.expiresAt === undefined ? undefined : Math.round((cache.expiresAt - Date.now()) / 1000),
 		};
 
-		// The summary must stop where the kept messages start; without text to point at, it would cover them too.
 		const kept = keptStart(event.branchEntries, preparation.firstKeptEntryId, [...request.transcript, ...trailing]);
 		if (!kept) return fallBack("no kept message in the request has text to mark where the summary ends");
 		const instruction: AgentMessage = {
@@ -367,9 +328,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			timestamp: Date.now(),
 		};
 
-		// Same model, thinking level, and session id as the agent, so Pi serializes the same prefix.
-		// onPayload proves it against the captured request before anything is sent. The bridge has no
-		// payload to compare: the header makes it copy the live Claude Code conversation instead.
 		let mismatch: PrefixMismatch | undefined;
 		const thinkingLevel = pi.getThinkingLevel();
 		const controller = new AbortController();
@@ -385,7 +343,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			response = await ctx.modelRegistry
 				.streamSimple(request.model, { messages: convertToLlm(sent) }, {
 				reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
-				// Pi's own limit for a summary, so it fits the room Pi reserves for it. The output limit is not part of the cached prefix.
 				maxTokens: Math.min(Math.floor(0.8 * preparation.settings.reserveTokens), request.model.maxTokens > 0 ? request.model.maxTokens : Infinity),
 				sessionId: ctx.sessionManager.getSessionId(),
 				signal: AbortSignal.any([event.signal, controller.signal]),
@@ -402,15 +359,13 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 							return built.payload;
 						},
 					}
-					// "none" marks a one-shot, which a bridge without fork requests runs apart from the session.
 					: { headers: { [FORK_REQUEST_HEADER]: "1" }, cacheRetention: "none" as const }),
 				})
 				.result();
 		} catch (error) {
-			// Pi would run its default after a throwing handler anyway; this way the log says why.
 			return fallBack(`the summary request failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
-		// A bridge query that called a tool waits for its result; aborting ends it.
+		// A bridge query that called a tool waits for the result until aborted.
 		if (response.stopReason === "toolUse") controller.abort();
 		const summary = contentText(response.content).trim();
 		record.response = {
@@ -434,7 +389,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		const checkpoint = checkpointSummary(summary, preparation.fileOps, getLatestCompactionEntry(event.branchEntries)?.details);
 		const promptTokens = response.usage.input + response.usage.cacheRead + response.usage.cacheWrite;
 		if (promptTokens > 0) {
-			// Pi's summary of the same messages would be about as long, so its estimate reuses this summary's output.
 			const piInput = piCompactionInput(preparation, sent, promptTokens);
 			const piUsage: Usage = { ...response.usage, input: piInput, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, cost: { ...response.usage.cost } };
 			record.piEstimate = { input: piInput, cost: calculateCost(request.model, piUsage).total };
@@ -455,7 +409,6 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	pi.registerCommand("cached-compaction", {
 		description: "Show the prompt cache state and this session's compaction log; `cache-flag` turns on OpenAI's cache options for GPT on opencode-go",
 		handler: async (args, ctx) => {
-			// opencode-go passes OpenAI's cache options through, but Pi's catalog only flags these models on `openai`.
 			const flagless = ctx.modelRegistry.getAll().filter((m) => m.provider === "opencode-go" && m.api === "openai-responses" &&
 				!("supportsExplicitPromptCacheMode" in (m.compat ?? {})) && hasExplicitPromptCache(ctx.modelRegistry.find("openai", m.id) ?? m)).map((m) => m.id);
 			if (args.trim() === "cache-flag") {
@@ -471,7 +424,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 				for (const id of flagless) ((overrides[id] ??= {}).compat ??= {}).supportsExplicitPromptCacheMode = true;
 				writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`);
 				await ctx.modelRegistry.refresh({ providers: ["opencode-go"], allowNetwork: false });
-				// The session keeps its model object until it is set again; setting it resets the thinking level.
+				// setModel resets the thinking level.
 				const current = ctx.model?.provider === "opencode-go" && flagless.includes(ctx.model.id) ? ctx.modelRegistry.find("opencode-go", ctx.model.id) : undefined;
 				const level = pi.getThinkingLevel();
 				if (current && (await pi.setModel(current))) pi.setThinkingLevel(level);

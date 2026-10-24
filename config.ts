@@ -4,12 +4,6 @@ import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isPlainObject } from "./cached-request.ts";
 
 export interface CachedCompactionConfig {
-	/**
-	 * "long" asks providers for their longer cache lifetime in interactive sessions: 1 hour on Anthropic and on Kimi K3
-	 * through Moonshot's API, 24 hours on OpenAI models before GPT-5.6. GPT-5.6 and later keep their 30-minute
-	 * conversation cache and get a 12-hour system prompt cache shared by the project's sessions. Claude Code picks its
-	 * own on pi-claude.
-	 */
 	cacheRetention: "short" | "long";
 	compactBeforeExpiry: boolean;
 	minContextTokens: number;
@@ -19,14 +13,12 @@ const DEFAULTS: CachedCompactionConfig = { cacheRetention: "long", compactBefore
 
 const settingsPath = () => join(getAgentDir(), "settings.json");
 
-/** The global Pi settings file, parsed the way Pi parses it (a leading byte-order mark is allowed). */
 function readSettings(path: string): Record<string, unknown> {
 	if (!existsSync(path)) return {};
 	const text = readFileSync(path, "utf8");
 	return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
 }
 
-/** Reads the `cachedCompaction` key of the global Pi settings file. Invalid values and unknown keys fail loudly. */
 export function loadConfig(): CachedCompactionConfig {
 	const path = settingsPath();
 	const raw: unknown = readSettings(path).cachedCompaction;
@@ -43,10 +35,6 @@ export function loadConfig(): CachedCompactionConfig {
 	return { cacheRetention, compactBeforeExpiry, minContextTokens };
 }
 
-/**
- * Pi's automatic compaction switch (`compaction.enabled`), from a trusted project's settings over the global ones as
- * Pi merges them. Read when needed, because Pi's settings change it mid-session.
- */
 export function autoCompactionEnabled(trustedProjectDir: string | undefined): boolean {
 	const enabled = (path: string) => (readSettings(path).compaction as { enabled?: unknown } | undefined)?.enabled;
 	const project = trustedProjectDir === undefined ? undefined : enabled(join(trustedProjectDir, CONFIG_DIR_NAME, "settings.json"));

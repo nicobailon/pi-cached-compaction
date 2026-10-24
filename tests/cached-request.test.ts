@@ -60,7 +60,6 @@ test("extension messages after the captured request are trailing, and one that e
 		({ type: "custom_message", id, parentId: null, timestamp: at, customType: "subagent-notify", content: text, display: true }) as SessionEntry;
 	const reply = { role: "assistant", content: [{ type: "text", text: "noted" }], timestamp: Date.parse("2026-10-21T10:00:06.000Z") } as AgentMessage;
 	const entries = [entry("u", user("go", 1)), notice("c1", "run done", "2026-10-21T10:00:05.000Z"), entry("a", reply), notice("c2", "run done", "2026-10-21T10:00:09.000Z")];
-	// The request carried the first notice as sent, before Pi stamped its entry; an identical one came later.
 	const sent = { role: "custom", customType: "subagent-notify", content: "run done", display: true, timestamp: Date.parse("2026-10-21T10:00:04.000Z") } as AgentMessage;
 	const result = trailingMessages(entries, [user("go", 1), sent]);
 	assert.ok("messages" in result, JSON.stringify(result));
@@ -89,7 +88,6 @@ test("a GPT summary request gets the project's 12-hour prefix before it is compa
 		sharedPrefix: true,
 	});
 	assert.equal(reason(summaryPayload(rebuilt, prefix, undefined, none)), 'request field "prompt_cache_key" differs');
-	// The card shows the shared prefix on a request that was not sent too, so a mismatch it caused can be told apart.
 	const edited = { ...rebuilt, input: [{ role: "developer", content: "You are Pi, edited." }, turn, summarize] };
 	assert.equal(summaryPayload(edited, prefix, "pi-project", none).sharedPrefix, true);
 });
@@ -103,7 +101,6 @@ test("the kept start is the first kept message the request carries, with tool ca
 		{ ...entry("a2", call(2)), parentId: "a1" } as SessionEntry,
 	];
 	assert.deepEqual(keptStart(entries, "k", [user("start", 0), call(1), call(2)]), { text: '[tool call: bash {"command":"ls"}]', fromEnd: 2, count: 2 });
-	// A `!!` command is kept in the session but never sent to the model.
 	const hidden = { role: "bashExecution", command: "git status", output: "", exitCode: 0, cancelled: false, truncated: false, excludeFromContext: true, timestamp: 4 } as AgentMessage;
 	const afterHidden = [entry("b", hidden), { ...entry("n", user("next", 5)), parentId: "b" } as SessionEntry];
 	assert.deepEqual(keptStart(afterHidden, "b", [hidden, user("next", 5)]), { text: "next", fromEnd: 1, count: 1 });
@@ -117,7 +114,6 @@ test("a field the provider keeps out of the cached prefix may differ only when n
 	const toolChoice = new Set(["tool_choice"]);
 	assert.equal(reason(summaryPayload(rebuilt, { payload: captured, key: "input" }, undefined, none)), 'request field "tool_choice" differs');
 	assert.deepEqual(summaryPayload(rebuilt, { payload: captured, key: "input" }, undefined, toolChoice), { payload: rebuilt, sharedPrefix: false });
-	// OpenAI's active reasoning effort trails the cache breakpoint and moves after the new turns.
 	const withEffort = { ...captured, input: [...captured.input, { type: "configuration_update", reasoning: { effort: "high" } }] };
 	assert.deepEqual(summaryPayload(rebuilt, { payload: withEffort, key: "input" }, undefined, toolChoice), { payload: rebuilt, sharedPrefix: false });
 });
@@ -132,14 +128,12 @@ test("a branch that no longer contains the captured transcript is rejected", () 
 });
 
 test("a compaction entry the captured request already summarizes does not end the trailing messages", () => {
-	// Mid-run compaction: the entry lands after the tool result, and the next request starts with its summary.
 	const toolResult = user("tool output", 2);
 	const call = { role: "assistant", content: [{ type: "text", text: "edit" }], timestamp: 4 } as AgentMessage;
 	const compaction = (at: number) => ({ type: "compaction", id: `c${at}`, parentId: null, timestamp: new Date(at).toISOString(), summary: "s", firstKeptEntryId: "a", tokensBefore: 1 }) as SessionEntry;
 	const entries = [entry("a", user("fix the bug", 1)), entry("b", toolResult), compaction(3), entry("d", call)];
 	const summary = { role: "compactionSummary", summary: "s", tokensBefore: 1, timestamp: 3 } as AgentMessage;
 	assert.deepEqual(trailingMessages(entries, [summary, user("fix the bug", 1), toolResult]), { messages: [call] });
-	// A request sent before that compaction does not carry its summary.
 	assert.deepEqual(trailingMessages(entries, [user("fix the bug", 1), toolResult]), { reason: "a compaction entry came after it" });
 });
 
@@ -153,10 +147,8 @@ test("GPT long retention caches the system prompt for 12 hours under the project
 		prompt_cache_options: options,
 		input: [{ role: "developer", content: [{ type: "input_text", text: "You are Pi.", prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" } }] }, turn],
 	});
-	// Pi drops the key when a request turns caching off, as its own compaction does.
 	const uncached = { model: "gpt-6-luna", input: request.input };
 	assert.equal(withSharedPrefixCache(uncached, "pi-project"), uncached);
-	// Pi keeps the key but drops the cache options for endpoints that reject them, such as Sign in with ChatGPT.
 	const noOptions = { model: "gpt-6-luna", prompt_cache_key: "session-1", input: request.input };
 	assert.equal(withSharedPrefixCache(noOptions, "pi-project"), noOptions);
 });

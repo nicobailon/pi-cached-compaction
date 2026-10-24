@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-/** One JSON line per compaction decision, compaction outcome, and compact-before-expiry decision, for every session. */
 const TRACE_PATH = join(getAgentDir(), "cached-compaction.jsonl");
 export const TRACE_PATH_LABEL = TRACE_PATH.startsWith(homedir()) ? `~${TRACE_PATH.slice(homedir().length)}` : TRACE_PATH;
 const MAX_TRACE_BYTES = 5_000_000;
@@ -18,12 +17,10 @@ export interface TraceUsage {
 	cost: number;
 }
 
-/** What the extension decided in session_before_compact, with everything that decision rested on. */
 export interface CompactTrace {
 	event: "compact";
 	trigger: Trigger;
 	model: string;
-	/** "cached": this extension wrote the summary; "fallback": Pi's compaction runs; "cancelled": nothing runs. */
 	outcome: "cached" | "fallback" | "cancelled";
 	reason?: string;
 	mismatch?: { captured?: string; rebuilt?: string };
@@ -34,11 +31,9 @@ export interface CompactTrace {
 	cache?: { lifetimeSeconds?: number; source?: string; expiresInSeconds?: number };
 	request?: { thinking: string; bridgeFork: boolean; toolChoiceNone: boolean; sharedPrefix: boolean };
 	response?: { stopReason: string; seconds: number; usage: TraceUsage; summaryChars: number; error?: string };
-	/** Pi's compaction of the same messages, estimated: its uncached input tokens, and their cost with this summary's output. */
 	piEstimate?: { input: number; cost: number };
 }
 
-/** The compaction Pi saved, whichever path wrote it. */
 export interface ResultTrace {
 	event: "result";
 	trigger: Trigger;
@@ -56,7 +51,6 @@ export interface FailedTrace {
 	error?: string;
 }
 
-/** The timer's decision 20 seconds before the cache expires, with compactBeforeExpiry on. */
 export interface ExpiryTrace {
 	event: "expiry";
 	action: "compact" | "skip";
@@ -89,7 +83,7 @@ export function readTraces(session: string, limit: number): TraceRecord[] {
 	const records: TraceRecord[] = [];
 	for (const line of text.split("\n")) {
 		if (!line) continue;
-		// A line cut short by a crash mid-write is skipped, and so is an event another version wrote.
+		// Skips lines cut short by a crash and events from other versions.
 		try {
 			const record = JSON.parse(line) as TraceRecord;
 			if (record.session === session && TRACE_EVENTS.has(record.event)) records.push(record);
@@ -115,10 +109,6 @@ function formatCost(cost: number): string {
 	return `$${Number(cost.toPrecision(2))}`;
 }
 
-/**
- * A cached compaction against Pi's estimate for the same messages: by cost when the model has prices, else (the
- * bridge's subscription models) by the tokens not read from the cache. `ratio` is this one over Pi's.
- */
 export function comparison(record: CompactTrace): { text: string; ratio: number } | undefined {
 	const { piEstimate, response } = record;
 	if (record.outcome !== "cached" || !piEstimate || !response) return undefined;
@@ -151,7 +141,6 @@ export function formatDuration(ms: number): string {
 	return ms >= 120_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`;
 }
 
-/** One line for /cached-compaction and the inline card. */
 export function describeTrace(record: TraceRecord): string {
 	const time = new Date(record.at).toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 	switch (record.event) {
@@ -171,7 +160,6 @@ export function describeTrace(record: TraceRecord): string {
 				? `${time}   Pi's compaction saved${record.usage ? `: ${cacheShare(record.usage)}, ${formatCost(record.usage.cost)}` : ""}, summary ${record.summaryChars} chars`
 				: `${time}   saved, ${formatTokens(record.tokensBefore)} tokens summarized`;
 		case "failed":
-			// Pi can fail before session_before_compact runs ("Nothing to compact"), so this line names its trigger.
 			return `${time} ${TRIGGER_LABELS[record.trigger]}: ${record.aborted ? "aborted" : (record.error ?? "failed")}`;
 		case "expiry":
 			return record.action === "compact"
@@ -180,7 +168,6 @@ export function describeTrace(record: TraceRecord): string {
 	}
 }
 
-/** What a compaction decision rested on, for the inline card's expanded view. */
 export function traceDetails(record: CompactTrace): string[] {
 	const lines: string[] = [];
 	const { cache, lastRequest, request, response, mismatch } = record;
