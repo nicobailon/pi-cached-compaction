@@ -34,9 +34,10 @@ export interface CacheState {
 }
 
 /**
- * The prompt cache of the branch's conversation since its last compaction. The lifetime is the tier the latest
- * cache write reported (Pi's Anthropic provider and the Claude bridge give its 1-hour share as `cacheWrite1h`),
- * else the tier PI_CACHE_RETENTION asks for. Pi's cache warmer records each refresh as a usage entry.
+ * The prompt cache of the branch's conversation since its last compaction. The lifetime is the model's declared one
+ * for the tier the latest cache write reported (Pi's Anthropic provider and the Claude bridge give its 1-hour share
+ * as `cacheWrite1h`), else for the tier PI_CACHE_RETENTION asks for. Without a declared one it is the reported tier's,
+ * else OpenAI's minimum, else Kimi's option. Pi's cache warmer records each refresh as a usage entry.
  */
 export function cacheState(model: Model<Api>, entries: SessionEntry[]): CacheState {
 	let refreshedAt: number | undefined;

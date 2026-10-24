@@ -27,12 +27,6 @@ The provider reads nearly all of it from the cache at about a tenth of the input
 
 ## vs Pi's compaction
 
-- **Reads the cache.** About 99% of the summary request comes from the cache at normal compaction sizes.
-- **Sees all the tool output, at the cache price.** Pi's compaction shows the model the first 2,000 characters of each tool result. This one shows all of it, and since that output is already in the cache, including it costs no more than the rest of the session.
-- **Compares itself with Pi's.** Each compaction gets a card showing its cost next to what Pi's compaction would have cost for the same messages.
-- **Compacts before the cache expires.** If you step away, it compacts from the warm cache, so your next message doesn't pay to write the whole session again.
-- **Falls back cleanly.** It checks that the request repeats your last one byte for byte up to the new part. When it can't prove that, Pi's own compaction runs as usual. (Claude through pi-claude-bridge is checked by the bridge instead; see [Providers](#providers).)
-
 | | Pi's compaction | pi-cached-compaction |
 |---|---|---|
 | What it sends | the older messages as text, under its own system prompt | your conversation as it is, plus one instruction |
@@ -42,6 +36,8 @@ The provider reads nearly all of it from the cache at about a tenth of the input
 | After a long break | your next message rewrites the whole expired cache | it compacts just before the cache expires, so there's much less to rewrite |
 | Cache lifetime | Pi's default (5 minutes on Anthropic) | 1 hour in interactive sessions, which Anthropic bills at 2× per write instead of 1.25× ([why](#compacting-before-the-cache-expires)) |
 | What you see | the summary | the summary, a card comparing the cost with Pi's compaction, and a cache countdown in the footer |
+
+Before sending, the extension checks that the request repeats your last one byte for byte up to the new part. When it can't prove that, Pi's own compaction runs as usual. (Claude through pi-claude-bridge is checked by the bridge instead; see [Providers](#providers).)
 
 ## Install
 
@@ -61,7 +57,7 @@ Then run `/reload`. It needs Pi 0.87.0 or newer, and everything is on by default
 
 ![The expanded card: "13:48:54 /compact: Pi's compaction, request field "reasoning" differs. cache: lifetime 30 min (OpenAI's minimum), 30 min left. last request: 4 s ago, 20 messages, 2k prompt tokens, 1 new since. request: thinking low, shared 12h prefix. last request had: {"effort":"high","summary":"auto"}. summary request had: {"effort":"low","summary":"auto"}. 13:48:59 Pi's compaction saved: 0% of 923 from cache, 384 out, $0.0003, summary 1243 chars. log: ~/.pi/agent/cached-compaction.jsonl"](media/card-fallback.png)
 
-**The countdown** in the footer shows how long the cache has left. Sending a message restarts it, and it goes `⏱ 59m … ⏱ 2m … ⏱ 0:25` (in the warning color for the last 30 seconds), then `cache cold`. In powerline-footer it shows in the `extension_statuses` segment. The lifetime comes from the cache tier the provider reports writing (Anthropic and pi-claude-bridge report it), else the model's declared lifetime, else OpenAI's 30-minute minimum for GPT-5.6 and later, else Kimi K3's 5-minute or 1-hour option. Models with none of those show no countdown.
+**The countdown** in the footer shows how long the cache has left. Sending a message restarts it, and it goes `⏱ 59m … ⏱ 2m … ⏱ 0:25` (in the warning color for the last 30 seconds), then `cache cold`. In powerline-footer it shows in the `extension_statuses` segment. The lifetime is the model's declared one, else the cache tier the provider reports writing (Anthropic and pi-claude-bridge report it), else OpenAI's 30-minute minimum for GPT-5.6 and later, else Kimi K3's 5-minute or 1-hour option. Models with none of those show no countdown.
 
 **`/cached-compaction`** shows the cache right now, whether the next compaction would take the cached path, and this session's log:
 

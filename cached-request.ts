@@ -96,8 +96,8 @@ function difference(reason: string, captured: string, rebuilt: string): PrefixMi
 function prefixMismatch(captured: Payload, rebuilt: Payload, key: string, cacheNeutral: ReadonlySet<string>): PrefixMismatch | undefined {
 	for (const field of new Set([...Object.keys(captured), ...Object.keys(rebuilt)])) {
 		if (field === key || OUTPUT_LIMIT_KEYS.has(field) || cacheNeutral.has(field)) continue;
-		const [before, after] = [canonical(captured[field]), canonical(rebuilt[field])];
-		if (before !== after) return difference(`request field "${field}" differs`, before, after);
+		const [was, now] = [canonical(captured[field]), canonical(rebuilt[field])];
+		if (was !== now) return difference(`request field "${field}" differs`, was, now);
 	}
 	const before = captured[key] as unknown[];
 	const after = rebuilt[key];
@@ -136,8 +136,8 @@ export function withSharedPrefixCache(payload: Payload, cacheKey: string): Paylo
 
 /**
  * Kimi's 1-hour cache, for a request where Pi asked for its longer cache. Pi asks with OpenAI's prompt_cache_retention,
- * and Kimi takes the lifetime from prompt_cache_options instead. Pi leaves that field out when the request turns caching
- * off or the model's compat turns long retention off.
+ * and Kimi takes the lifetime from prompt_cache_options instead. Pi leaves prompt_cache_retention out when the request
+ * turns caching off or the model's compat turns long retention off.
  */
 export function withKimiLongCache(payload: Payload): Payload {
 	if (payload.prompt_cache_retention !== "24h" || "prompt_cache_options" in payload) return payload;

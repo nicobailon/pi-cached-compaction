@@ -1,12 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isPlainObject } from "./cached-request.ts";
 
 export interface CachedCompactionConfig {
 	/**
-	 * "long" asks providers for their longer cache lifetime in interactive sessions: 1 hour on Anthropic, 24 hours on
-	 * OpenAI models before GPT-5.6. GPT-5.6 and later keep their 30-minute conversation cache and get a 12-hour system
-	 * prompt cache shared by the project's sessions. Claude Code picks its own on pi-claude.
+	 * "long" asks providers for their longer cache lifetime in interactive sessions: 1 hour on Anthropic and on Kimi K3
+	 * through Moonshot's API, 24 hours on OpenAI models before GPT-5.6. GPT-5.6 and later keep their 30-minute
+	 * conversation cache and get a 12-hour system prompt cache shared by the project's sessions. Claude Code picks its
+	 * own on pi-claude.
 	 */
 	cacheRetention: "short" | "long";
 	compactBeforeExpiry: boolean;
@@ -29,11 +31,10 @@ export function loadConfig(): CachedCompactionConfig {
 	const path = settingsPath();
 	const raw: unknown = readSettings(path).cachedCompaction;
 	if (raw === undefined) return DEFAULTS;
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error(`cachedCompaction in ${path} must be an object`);
+	if (!isPlainObject(raw)) throw new Error(`cachedCompaction in ${path} must be an object`);
 	const unknown = Object.keys(raw).filter((key) => !(key in DEFAULTS));
 	if (unknown.length > 0) throw new Error(`cachedCompaction in ${path} has unknown keys: ${unknown.join(", ")}`);
-	const { cacheRetention = DEFAULTS.cacheRetention, compactBeforeExpiry = DEFAULTS.compactBeforeExpiry, minContextTokens = DEFAULTS.minContextTokens } =
-		raw as Record<string, unknown>;
+	const { cacheRetention = DEFAULTS.cacheRetention, compactBeforeExpiry = DEFAULTS.compactBeforeExpiry, minContextTokens = DEFAULTS.minContextTokens } = raw;
 	if (cacheRetention !== "short" && cacheRetention !== "long") throw new Error(`cachedCompaction.cacheRetention in ${path} must be "short" or "long"`);
 	if (typeof compactBeforeExpiry !== "boolean") throw new Error(`cachedCompaction.compactBeforeExpiry in ${path} must be true or false`);
 	if (typeof minContextTokens !== "number" || !Number.isInteger(minContextTokens) || minContextTokens < 0) {

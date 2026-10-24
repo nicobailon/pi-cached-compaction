@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 /** One JSON line per compaction decision, compaction outcome, and compact-before-expiry decision, for every session. */
-export const TRACE_PATH = join(getAgentDir(), "cached-compaction.jsonl");
+const TRACE_PATH = join(getAgentDir(), "cached-compaction.jsonl");
 export const TRACE_PATH_LABEL = TRACE_PATH.startsWith(homedir()) ? `~${TRACE_PATH.slice(homedir().length)}` : TRACE_PATH;
 const MAX_TRACE_BYTES = 5_000_000;
 

@@ -81,16 +81,11 @@ The earlier wording quoted the first kept message and said to summarize only wha
 | An extension message arrived while idle, then `/compact` | cached, 1,510 of 1,513 from the cache |
 | `tool_choice: "none"` on the summary request | 72 fewer tokens read from the cache, every time |
 | Second session in the same project, first request (flag on) | 1,261 of 1,264 cached; none with Pi's per-session key |
-| 12-hour entry, idle 40 minutes (direct API requests) | still cached; a 30-minute entry beside it had expired |
+| 12-hour entry, idle 40 minutes (direct API requests) | still cached, both as a breakpoint on the system prompt and as the request's lifetime; a 30-minute entry beside it had expired |
 | Tools, then `/compact` twice, with the flag (12h prefix, shared key) | 83, 85% / 84, 86%; countdown `⏱ 29m` |
-| Pi's own compaction with the flag | 0 tokens written to the cache |
+| Pi's own compaction with the flag | 0 tokens written to the cache, where it used to write its whole prompt at 1.25× |
 
-More on the flag (`supportsExplicitPromptCacheMode`, see the README):
-
-- With it, a second session in the same project read 1,261 of 1,264 prompt tokens from the cache on its first request. With Pi's per-session key it read none.
-- A 12-hour entry was still cached after 40 idle minutes, both as a breakpoint on the system prompt and as the request's lifetime. A 30-minute entry written at the same time had expired. These were direct API requests.
-- Cached compaction still read 83–86% from the cache, the countdown showed `⏱ 29m`, and Pi's own compaction stopped writing to the cache (0 tokens, where it used to write its whole prompt at 1.25×).
-- The conversation's 30-minute lifetime held: warm after 12, 17, and 24 idle minutes, gone after 32 and 62.
+The flag is `supportsExplicitPromptCacheMode` (see the README).
 
 ## `tool_choice`
 
@@ -165,3 +160,4 @@ Only 11–29% of the results run past 2,000 characters, but they hold most of th
 
 - The `openai` provider (no API credits). GPT-6 models there carry the reasoning effort as a trailing `configuration_update` item after the cache breakpoint, which the prefix check treats like Anthropic's trailing effort message. That path is checked against Pi's own OpenAI serializer for `gpt-6.1-sol` and `gpt-5.5`.
 - `openai-codex` (ChatGPT sign-in).
+- Kimi K3 on `moonshotai` and `moonshotai-cn`. Its 1-hour cache option and countdown are covered by unit tests only.

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { calculateCost, type Api, type AssistantMessage, type Model, type Usage } from "@earendil-works/pi-ai";
+import { calculateCost, contentText, type Api, type AssistantMessage, type Model, type Usage } from "@earendil-works/pi-ai";
 import { convertToLlm, getAgentDir, getLastAssistantUsage, getLatestCompactionEntry, keyHint, type ExtensionAPI, type ExtensionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { cacheState, hasExplicitPromptCache, isKimiOnMoonshot, type CacheState } from "./cache-state.ts";
@@ -64,6 +64,13 @@ const PREFIX_MISMATCH = "pi-cached-compaction: request prefix differs from the c
 const BRIDGE_API = "claude-bridge";
 /** The bridge's documented header for running one request on a copy of the live Claude Code conversation. */
 const FORK_REQUEST_HEADER = "x-claude-bridge-fork";
+/** How long before expiry the idle compaction starts, leaving time for the request to reach the provider. */
+const EXPIRY_LEAD_MS = 20_000;
+const WARNING_MS = 30_000;
+/** Records the retention this extension chose, so it can tell its own value (also inherited by child Pi processes) from the user's. */
+const RETENTION_MARKER = "PI_CACHED_COMPACTION_RETENTION";
+/** Set once an interactive session in this process chose long retention. In-process headless children share the environment. */
+const INTERACTIVE_OWNER = Symbol.for("pi-cached-compaction.interactive-long-retention");
 
 /**
  * OpenAI's own Responses API. There, tool_choice is not part of the cached prefix, and OpenAI
@@ -82,14 +89,6 @@ function sharedPrefixKey(model: Model<Api>, cwd: string): string | undefined {
 	if (!hasExplicitPromptCache(model) || process.env.PI_CACHE_RETENTION !== "long") return undefined;
 	return `pi-${createHash("sha256").update(cwd).digest("hex").slice(0, 40)}`;
 }
-
-/** How long before expiry the idle compaction starts, leaving time for the request to reach the provider. */
-const EXPIRY_LEAD_MS = 20_000;
-const WARNING_MS = 30_000;
-/** Records the retention this extension chose, so it can tell its own value (also inherited by child Pi processes) from the user's. */
-const RETENTION_MARKER = "PI_CACHED_COMPACTION_RETENTION";
-/** Set once an interactive session in this process chose long retention. In-process headless children share the environment. */
-const INTERACTIVE_OWNER = Symbol.for("pi-cached-compaction.interactive-long-retention");
 
 function traceUsage(usage: Usage): TraceUsage {
 	return { input: usage.input, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, output: usage.output, cost: usage.cost.total };
@@ -123,7 +122,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	/** What started the compaction in progress, so its outcome is logged against the same trigger. */
 	let compactionTrigger: Trigger | undefined;
 	/** This extension's decision for the compaction in progress, shown in the card with its outcome. */
-	let decision: (CompactTrace & { at: string; session: string }) | undefined;
+	let decision: Extract<TraceRecord, { event: "compact" }> | undefined;
 	let traceError: string | undefined;
 
 	const trace = <E extends TraceEvent>(ctx: ExtensionContext, event: E) => {
@@ -413,7 +412,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		}
 		// A bridge query that called a tool waits for its result; aborting ends it.
 		if (response.stopReason === "toolUse") controller.abort();
-		const summary = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n").trim();
+		const summary = contentText(response.content).trim();
 		record.response = {
 			stopReason: response.stopReason,
 			seconds: (Date.now() - started) / 1000,
@@ -433,10 +432,10 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		if (!summary) return fallBack("the model returned no summary text");
 
 		const checkpoint = checkpointSummary(summary, preparation.fileOps, getLatestCompactionEntry(event.branchEntries)?.details);
-		const { input, cacheRead, cacheWrite } = response.usage;
-		if (input + cacheRead + cacheWrite > 0) {
+		const promptTokens = response.usage.input + response.usage.cacheRead + response.usage.cacheWrite;
+		if (promptTokens > 0) {
 			// Pi's summary of the same messages would be about as long, so its estimate reuses this summary's output.
-			const piInput = piCompactionInput(preparation, sent, input + cacheRead + cacheWrite);
+			const piInput = piCompactionInput(preparation, sent, promptTokens);
 			const piUsage: Usage = { ...response.usage, input: piInput, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, cost: { ...response.usage.cost } };
 			record.piEstimate = { input: piInput, cost: calculateCost(request.model, piUsage).total };
 		}
@@ -484,7 +483,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			let cache = "lifetime unknown, so no countdown";
 			if (model?.provider === "opencode-go" && flagless.includes(model.id)) cache += "; run /cached-compaction cache-flag to get one";
 			if (state?.lifetime) {
-				let left = state.replied ? "the last request used no cache" : "no request since the session started or compacted";
+				let left = state.replied ? "the last request did not use the prompt cache" : "no request since the session started or compacted";
 				if (state.expiresAt !== undefined) left = state.expiresAt > Date.now() ? `${formatRemaining(state.expiresAt - Date.now())} left` : "expired";
 				cache = `${left} (lifetime ${formatDuration(state.lifetime.ms)}, ${state.lifetime.source})`;
 			}
