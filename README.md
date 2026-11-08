@@ -75,7 +75,7 @@ jq -c 'select(.event == "compact") | {at, trigger, outcome, reason, cacheRead: .
 |---|---|
 | See the cache now and this session's compactions | `/cached-compaction` |
 | See why a compaction didn't use the cache | expand its card with ctrl+o |
-| Change the settings from Pi | `/cached-compaction settings` |
+| Change the settings from Pi | `/cached-compaction-settings` (or `/cached-compaction settings`) |
 | Compact earlier or later on big models | change "Compact when the context is" (`compactAtPercent`) |
 | Stop compacting before the cache expires | `"compactBeforeExpiry": false` in [Settings](#settings) |
 | Compact before expiry only on bigger sessions | raise `minContextTokens` |
@@ -86,7 +86,7 @@ jq -c 'select(.event == "compact") | {at, trigger, outcome, reason, cacheRead: .
 
 ## Settings
 
-Run `/cached-compaction settings` to change them in a menu; changes are saved to the `cachedCompaction` key in `~/.pi/agent/settings.json` and apply right away. You can also edit that key by hand. Project settings files don't apply to it, and an unknown key is an error.
+Run `/cached-compaction-settings` (or `/cached-compaction settings`) to change them in a menu; changes are saved to the `cachedCompaction` key in `~/.pi/agent/settings.json` and apply right away. You can also edit that key by hand. Project settings files don't apply to it, and an unknown key is an error.
 
 | Setting | Default | What it does |
 |---|---|---|

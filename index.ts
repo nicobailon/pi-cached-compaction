@@ -504,7 +504,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		if (ctx.mode !== "tui") {
 			ctx.ui.notify(
 				[
-					"pi-cached-compaction settings (cachedCompaction in ~/.pi/agent/settings.json; /cached-compaction settings in the TUI changes them)",
+					"pi-cached-compaction settings (cachedCompaction in ~/.pi/agent/settings.json; /cached-compaction-settings in the TUI changes them)",
 					`compactAtPercent: ${fullNote(ctx.model, config.compactAtPercent)}`,
 					`compactBeforeExpiry: ${config.compactBeforeExpiry} · minContextTokens: ${config.minContextTokens}`,
 					`cacheRetention: ${config.cacheRetention}`,
@@ -593,6 +593,11 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		});
 	};
 
+	pi.registerCommand("cached-compaction-settings", {
+		description: "Change pi-cached-compaction's settings: compact when full, compact before expiry, cache retention",
+		handler: async (_args, ctx) => openSettings(ctx),
+	});
+
 	pi.registerCommand("cached-compaction", {
 		description:
 			"Show the prompt cache state and this session's compaction log; `settings` changes this extension's settings; `cache-flag` turns on OpenAI's cache options for GPT on opencode-go",
@@ -655,7 +660,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 					`next compaction: ${next}`,
 					`when full: ${fullNote(model, config.compactAtPercent)}`,
 					`before expiry: ${expiryNote()} · retention ${model?.api === BRIDGE_API ? "set by Claude Code" : (process.env.PI_CACHE_RETENTION ?? "short")}`,
-					"settings: /cached-compaction settings",
+					"settings: /cached-compaction-settings",
 					`log: ${TRACE_PATH_LABEL}`,
 					"",
 					...log,
