@@ -171,6 +171,16 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		stopTimer(ctx);
 	};
 
+	// A compaction can outlive its session (Pi exiting, /new, /reload). Pi then calls back with a ctx that throws on
+	// use, and an error thrown from a callback takes the whole process down with exit code 1.
+	const ifSessionAlive = (action: () => void) => {
+		try {
+			action();
+		} catch {
+			// The session this compaction belonged to is gone; there is nothing left to update.
+		}
+	};
+
 	const compactBeforeExpiry = (ctx: ExtensionContext, remainingMs: number) => {
 		if (!config.compactBeforeExpiry) return;
 		const secondsLeft = Math.ceil(remainingMs / 1000);
@@ -202,7 +212,9 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			},
 			onError: () => {
 				ownTrigger = undefined;
-				if (ctx.isIdle()) startTimer(ctx, false);
+				ifSessionAlive(() => {
+					if (ctx.isIdle()) startTimer(ctx, false);
+				});
 			},
 		});
 	};
@@ -210,6 +222,10 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	// After a turn, compacts once the context passes compactAtPercent of the window, so a summary still fits beside it
 	// and the cache the turn just wrote is warm. Returns whether a compaction started.
 	const compactWhenFull = (ctx: ExtensionContext): boolean => {
+		// In print and JSON mode nothing follows a settled run: the process is exiting, so a compaction started here is
+		// cut off before its request is sent. There, Pi's own between-turn check (compaction.reserveTokens) starts
+		// compaction during the run, and session_before_compact still writes that summary from the cache.
+		if (!ctx.hasUI) return false;
 		const threshold = ctx.model ? fullThreshold(ctx.model, config.compactAtPercent) : undefined;
 		const contextTokens = ctx.getContextUsage()?.tokens ?? undefined;
 		if (threshold === undefined || contextTokens === undefined || contextTokens < threshold) {
@@ -242,13 +258,17 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		ctx.compact({
 			onComplete: () => {
 				ownTrigger = undefined;
-				const after = ctx.getContextUsage()?.tokens;
-				fullStuck = after !== undefined && after !== null && after >= threshold;
+				ifSessionAlive(() => {
+					const after = ctx.getContextUsage()?.tokens;
+					fullStuck = after !== undefined && after !== null && after >= threshold;
+				});
 			},
 			onError: () => {
 				ownTrigger = undefined;
 				fullStuck = true;
-				if (ctx.isIdle()) startTimer(ctx);
+				ifSessionAlive(() => {
+					if (ctx.isIdle()) startTimer(ctx);
+				});
 			},
 		});
 		return true;
