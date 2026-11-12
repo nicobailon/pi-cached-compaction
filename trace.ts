@@ -132,9 +132,9 @@ export function formatRemaining(ms: number): string {
 	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** The footer text: "cache 59m", "cache 0:25", then "cache cold". */
+/** The footer text: "cache warm · 59m left", then "cache cold · next message full price". */
 export function formatCacheStatus(ms: number): string {
-	return ms <= 0 ? "cache cold" : `cache ${formatRemaining(ms)}`;
+	return ms <= 0 ? "cache cold · next message full price" : `cache warm · ${formatRemaining(ms)} left`;
 }
 
 export function formatTokens(count: number): string {
