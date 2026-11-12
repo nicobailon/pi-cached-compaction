@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { comparison, type CompactTrace, type TraceUsage } from "../trace.ts";
+import { comparison, formatCacheStatus, formatRemaining, type CompactTrace, type TraceUsage } from "../trace.ts";
 
 const cached = (usage: Partial<TraceUsage>, piEstimate: CompactTrace["piEstimate"]): CompactTrace => ({
 	event: "compact",
@@ -22,4 +22,15 @@ test("the card compares a cached compaction with Pi's: by cost when the model ha
 		comparison(cached({ input: 2, cacheRead: 39_559, cacheWrite: 457_879 }, { input: 186_000, cost: 0 }))?.text,
 		"vs Pi's compaction: 2.5× as much, 458k tokens not from cache instead of ~186k",
 	);
+});
+
+test("the footer labels the countdown as the cache's, and the /cached-compaction line keeps the bare time", () => {
+	assert.equal(formatCacheStatus(59 * 60_000), "cache warm · 59m left");
+	assert.equal(formatCacheStatus(120_000), "cache warm · 2m left");
+	assert.equal(formatCacheStatus(25_000), "cache warm · 0:25 left");
+	assert.equal(formatCacheStatus(400), "cache warm · 0:01 left");
+	assert.equal(formatCacheStatus(0), "cache cold · next message full price");
+	assert.equal(formatCacheStatus(-5_000), "cache cold · next message full price");
+	assert.equal(formatRemaining(29 * 60_000), "29m");
+	assert.equal(formatRemaining(25_000), "0:25");
 });

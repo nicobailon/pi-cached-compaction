@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Labeled cache countdown** — The footer reads `cache warm · 59m left`, then `cache cold · next message full price`, instead of `⏱ 59m`, so it says what the countdown means for cost and is not mistaken for elapsed time or a countdown to compaction. During a request it reads `cache in use` instead of disappearing, so the footer no longer changes shape between turns.
+
 ## [0.2.0] - 2026-10-23
 
 ### Highlights

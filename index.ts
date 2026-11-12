@@ -26,6 +26,7 @@ import {
 	appendTrace,
 	comparison,
 	describeTrace,
+	formatCacheStatus,
 	formatDuration,
 	formatRemaining,
 	formatTokens,
@@ -193,7 +194,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		const tick = () => {
 			if (++ticks % 15 === 0 || expiresAt - Date.now() <= EXPIRY_LEAD_MS) expiresAt = readExpiry() ?? expiresAt;
 			const remaining = expiresAt - Date.now();
-			const text = formatRemaining(remaining);
+			const text = formatCacheStatus(remaining);
 			if (ctx.hasUI && text !== shown) {
 				shown = text;
 				ctx.ui.setStatus(STATUS_KEY, remaining <= WARNING_MS ? ctx.ui.theme.fg(remaining > 0 ? "warning" : "dim", text) : text);
@@ -233,7 +234,13 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		applyRetention(config.cacheRetention === "long", ctx.hasUI);
 		startTimer(ctx);
 	});
-	pi.on("agent_start", (_event, ctx) => stopTimer(ctx));
+	pi.on("agent_start", (_event, ctx) => {
+		stopTimer(ctx);
+		// Keep the status in place during a request, so it does not appear and vanish with each turn.
+		if (ctx.hasUI && ctx.model && cacheState(ctx.model, ctx.sessionManager.getBranch()).lifetime) {
+			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "cache in use"));
+		}
+	});
 	pi.on("agent_settled", (_event, ctx) => startTimer(ctx));
 	pi.on("session_compact", (event, ctx) => {
 		const entry = event.compactionEntry;
