@@ -127,10 +127,14 @@ export function comparison(record: CompactTrace): { text: string; ratio: number 
 }
 
 export function formatRemaining(ms: number): string {
-	if (ms <= 0) return "cache cold";
-	const seconds = Math.ceil(ms / 1000);
-	if (seconds >= 120) return `⏱ ${Math.floor(seconds / 60)}m`;
-	return `⏱ ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+	const seconds = Math.max(0, Math.ceil(ms / 1000));
+	if (seconds >= 120) return `${Math.floor(seconds / 60)}m`;
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** The footer text: "cache 59m", "cache 0:25", then "cache cold". */
+export function formatCacheStatus(ms: number): string {
+	return ms <= 0 ? "cache cold" : `cache ${formatRemaining(ms)}`;
 }
 
 export function formatTokens(count: number): string {
