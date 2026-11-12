@@ -66,6 +66,8 @@ export interface FullTrace {
 	contextTokens: number;
 	threshold: number;
 	percent: number;
+	/** The compactAtTokens cap, when it is the mark that was passed instead of the percentage. */
+	tokens?: number;
 }
 
 export type TraceEvent = CompactTrace | ResultTrace | FailedTrace | ExpiryTrace | FullTrace;
@@ -176,7 +178,8 @@ export function describeTrace(record: TraceRecord): string {
 				? `${time} cache expires in ${record.secondsLeft}s: compacting ${formatTokens(record.contextTokens ?? 0)} tokens`
 				: `${time} cache expires in ${record.secondsLeft}s: not compacting, ${record.reason}`;
 		case "full": {
-			const where = `context at ${formatTokens(record.contextTokens)}, past ${record.percent}% (${formatTokens(record.threshold)})`;
+			const mark = record.tokens === undefined ? `${record.percent}% (${formatTokens(record.threshold)})` : `the ${formatTokens(record.tokens)}-token cap`;
+			const where = `context at ${formatTokens(record.contextTokens)}, past ${mark}`;
 			return record.action === "compact" ? `${time} ${where}: compacting` : `${time} ${where}: not compacting, ${record.reason}`;
 		}
 	}

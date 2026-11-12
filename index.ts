@@ -35,6 +35,7 @@ import {
 import {
 	autoCompactionEnabled,
 	COMPACT_AT_PERCENTS,
+	COMPACT_AT_TOKEN_CHOICES,
 	fullThreshold,
 	loadConfig,
 	MIN_CONTEXT_CHOICES,
@@ -219,27 +220,29 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		});
 	};
 
-	// After a turn, compacts once the context passes compactAtPercent of the window, so a summary still fits beside it
+	// After a turn, compacts once the context passes compactAtPercent of the window or the compactAtTokens cap,
+	// whichever comes first, so a summary still fits beside it
 	// and the cache the turn just wrote is warm. Returns whether a compaction started.
 	const compactWhenFull = (ctx: ExtensionContext): boolean => {
 		// In print and JSON mode nothing follows a settled run: the process is exiting, so a compaction started here is
 		// cut off before its request is sent. There, Pi's own between-turn check (compaction.reserveTokens) starts
 		// compaction during the run, and session_before_compact still writes that summary from the cache.
 		if (!ctx.hasUI) return false;
-		const threshold = ctx.model ? fullThreshold(ctx.model, config.compactAtPercent) : undefined;
+		const threshold = ctx.model ? fullThreshold(ctx.model, config.compactAtPercent, config.compactAtTokens) : undefined;
 		const contextTokens = ctx.getContextUsage()?.tokens ?? undefined;
 		if (threshold === undefined || contextTokens === undefined || contextTokens < threshold) {
 			lastFullSkip = undefined;
 			fullStuck = false;
 			return false;
 		}
-		const base = { contextTokens, threshold, percent: config.compactAtPercent };
+		const cap = config.compactAtTokens > 0 && threshold === config.compactAtTokens ? config.compactAtTokens : undefined;
+		const base = { contextTokens, threshold, percent: config.compactAtPercent, ...(cap === undefined ? {} : { tokens: cap }) };
 		const skip = (reason: string) => {
 			if (reason !== lastFullSkip) trace(ctx, { event: "full", action: "skip", reason, ...base });
 			lastFullSkip = reason;
 			return false;
 		};
-		if (fullStuck) return skip("the last compaction left the context past the mark (raise compactAtPercent or keep fewer recent tokens)");
+		if (fullStuck) return skip("the last compaction left the context past the mark (raise compactAtPercent or compactAtTokens, or keep fewer recent tokens)");
 		let compactionOn: boolean;
 		try {
 			compactionOn = autoCompactionEnabled(ctx.isProjectTrusted() ? ctx.cwd : undefined);
@@ -253,7 +256,8 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 		ownTrigger = "full";
 		stopTimer(ctx);
 		if (ctx.hasUI) {
-			ctx.ui.notify(`The context holds ${formatTokens(contextTokens)} tokens, past ${config.compactAtPercent}% of the model's window. Compacting now, while the cache is warm.`, "info");
+			const mark = cap === undefined ? `${config.compactAtPercent}% of the model's window` : `your ${formatTokens(cap)}-token cap`;
+			ctx.ui.notify(`The context holds ${formatTokens(contextTokens)} tokens, past ${mark}. Compacting now, while the cache is warm.`, "info");
 		}
 		ctx.compact({
 			onComplete: () => {
@@ -510,13 +514,18 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 	});
 
 	const percentLabel = (percent: number) => (percent === 0 ? "off" : `${percent}%`);
-	const fullNote = (model: Model<Api> | undefined, percent: number): string => {
-		if (percent === 0) return "off: Pi compacts only when the window is nearly full, often with too little room left for a cached summary";
-		const at = model ? fullThreshold(model, percent) : undefined;
+	const capLabel = (tokens: number) => (tokens === 0 ? "off" : `${formatTokens(tokens)} tokens`);
+	const fullNote = (model: Model<Api> | undefined): string => {
+		const { compactAtPercent: percent, compactAtTokens: cap } = config;
+		if (percent === 0 && cap === 0) return "off: Pi compacts only when the window is nearly full, often with too little room left for a cached summary";
+		const at = model ? fullThreshold(model, percent, cap) : undefined;
 		if (!model || at === undefined) return `at ${percent}% of the window; the current model declares no window, so not here`;
-		const room = summaryBudget(model, at) ?? 0;
-		const tight = room < MIN_SUMMARY_TOKENS ? ", too little for a cached summary: pick a lower percentage" : "";
-		return `at ${percent}%: ${formatTokens(at)} of ${formatTokens(model.contextWindow)} on ${model.provider}/${model.id}, leaving ${formatTokens(room)} for the summary${tight}`;
+		const byCap = cap > 0 && at === cap;
+		const budget = summaryBudget(model, at);
+		const room = budget === undefined ? "" : `, leaving ${formatTokens(budget)} for the summary`;
+		const tight = budget !== undefined && budget < MIN_SUMMARY_TOKENS ? `, too little for a cached summary: pick a lower ${byCap ? "cap" : "percentage"}` : "";
+		const mark = byCap ? `at the ${formatTokens(cap)}-token cap` : `at ${percent}%: ${formatTokens(at)} of ${formatTokens(model.contextWindow)}`;
+		return `${mark} on ${model.provider}/${model.id}${room}${tight}`;
 	};
 	const expiryNote = () => (config.compactBeforeExpiry ? `on, from ${formatTokens(config.minContextTokens)} tokens of context` : "off");
 
@@ -525,7 +534,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			ctx.ui.notify(
 				[
 					"pi-cached-compaction settings (cachedCompaction in ~/.pi/agent/settings.json; /cached-compaction-settings in the TUI changes them)",
-					`compactAtPercent: ${fullNote(ctx.model, config.compactAtPercent)}`,
+					`compactAtPercent: ${config.compactAtPercent} · compactAtTokens: ${config.compactAtTokens} (${fullNote(ctx.model)})`,
 					`compactBeforeExpiry: ${config.compactBeforeExpiry} · minContextTokens: ${config.minContextTokens}`,
 					`cacheRetention: ${config.cacheRetention}`,
 				].join("\n"),
@@ -534,6 +543,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			return;
 		}
 		const percents = [...new Set([...COMPACT_AT_PERCENTS, config.compactAtPercent])].sort((a, b) => a - b);
+		const caps = [...new Set([...COMPACT_AT_TOKEN_CHOICES, config.compactAtTokens])].sort((a, b) => a - b);
 		const minimums = [...new Set([...MIN_CONTEXT_CHOICES, config.minContextTokens])].sort((a, b) => a - b);
 		const fullItem: SettingItem = {
 			id: "compactAtPercent",
@@ -543,11 +553,19 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 			description: "",
 		};
 		const describeFull = () => {
-			fullItem.description = `After a turn, once the context fills this share of the model's window, compact from the warm cache so the summary still fits beside it. Now ${fullNote(ctx.model, config.compactAtPercent)}.`;
+			fullItem.description = `After a turn, once the context fills this share of the model's window, compact from the warm cache so the summary still fits beside it. Now ${fullNote(ctx.model)}.`;
 		};
 		describeFull();
 		const items: SettingItem[] = [
 			fullItem,
+			{
+				id: "compactAtTokens",
+				label: "Or once it holds",
+				currentValue: capLabel(config.compactAtTokens),
+				values: caps.map(capLabel),
+				description:
+					"Also compact after a turn once the context holds this many tokens, on any model, whichever comes first. Every request reads the whole context from the cache, so a smaller context makes each request cheaper; older detail is summarized sooner.",
+			},
 			{
 				id: "compactBeforeExpiry",
 				label: "Compact before the cache expires",
@@ -578,6 +596,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 				(id, value) => {
 					let patch: Partial<CachedCompactionConfig>;
 					if (id === "compactAtPercent") patch = { compactAtPercent: percents.find((p) => percentLabel(p) === value) ?? config.compactAtPercent };
+					else if (id === "compactAtTokens") patch = { compactAtTokens: caps.find((n) => capLabel(n) === value) ?? config.compactAtTokens };
 					else if (id === "compactBeforeExpiry") patch = { compactBeforeExpiry: value === "on" };
 					else if (id === "minContextTokens") patch = { minContextTokens: minimums.find((n) => formatTokens(n) === value) ?? config.minContextTokens };
 					else patch = { cacheRetention: value === "long" ? "long" : "short" };
@@ -588,7 +607,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 						return;
 					}
 					if (id === "cacheRetention") applyRetention(config.cacheRetention === "long", ctx.hasUI);
-					if (id === "compactAtPercent") {
+					if (id === "compactAtPercent" || id === "compactAtTokens") {
 						fullStuck = false;
 						lastFullSkip = undefined;
 						describeFull();
@@ -678,7 +697,7 @@ export default function cachedCompaction(pi: ExtensionAPI) {
 					`pi-cached-compaction · ${model ? `${model.provider}/${model.id}` : "no model"}`,
 					`cache: ${cache}`,
 					`next compaction: ${next}`,
-					`when full: ${fullNote(model, config.compactAtPercent)}`,
+					`when full: ${fullNote(model)}`,
 					`before expiry: ${expiryNote()} · retention ${model?.api === BRIDGE_API ? "set by Claude Code" : (process.env.PI_CACHE_RETENTION ?? "short")}`,
 					"settings: /cached-compaction-settings",
 					`log: ${TRACE_PATH_LABEL}`,

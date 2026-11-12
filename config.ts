@@ -9,12 +9,16 @@ export interface CachedCompactionConfig {
 	minContextTokens: number;
 	/** Compact once the context fills this share of the model's window, 0 = off. */
 	compactAtPercent: number;
+	/** Compact once the context holds this many tokens, whatever the model's window, 0 = off. */
+	compactAtTokens: number;
 }
 
-const DEFAULTS: CachedCompactionConfig = { cacheRetention: "long", compactBeforeExpiry: true, minContextTokens: 140_000, compactAtPercent: 90 };
+const DEFAULTS: CachedCompactionConfig = { cacheRetention: "long", compactBeforeExpiry: true, minContextTokens: 140_000, compactAtPercent: 90, compactAtTokens: 0 };
 
 /** The values `/cached-compaction settings` offers for compactAtPercent; 0 is "off". */
 export const COMPACT_AT_PERCENTS = [0, 50, 60, 70, 75, 80, 85, 90, 95];
+/** The values `/cached-compaction settings` offers for compactAtTokens; 0 is "off". */
+export const COMPACT_AT_TOKEN_CHOICES = [0, 150_000, 200_000, 300_000, 400_000, 500_000, 600_000, 800_000];
 /** The values `/cached-compaction settings` offers for minContextTokens. */
 export const MIN_CONTEXT_CHOICES = [50_000, 100_000, 140_000, 200_000, 300_000, 500_000];
 /** A cached summary request needs at least this many output tokens; with less room, Pi's compaction runs instead. */
@@ -42,6 +46,7 @@ export function loadConfig(): CachedCompactionConfig {
 		compactBeforeExpiry = DEFAULTS.compactBeforeExpiry,
 		minContextTokens = DEFAULTS.minContextTokens,
 		compactAtPercent = DEFAULTS.compactAtPercent,
+		compactAtTokens = DEFAULTS.compactAtTokens,
 	} = raw;
 	if (cacheRetention !== "short" && cacheRetention !== "long") throw new Error(`cachedCompaction.cacheRetention in ${path} must be "short" or "long"`);
 	if (typeof compactBeforeExpiry !== "boolean") throw new Error(`cachedCompaction.compactBeforeExpiry in ${path} must be true or false`);
@@ -51,7 +56,10 @@ export function loadConfig(): CachedCompactionConfig {
 	if (typeof compactAtPercent !== "number" || !Number.isInteger(compactAtPercent) || compactAtPercent < 0 || compactAtPercent > 99) {
 		throw new Error(`cachedCompaction.compactAtPercent in ${path} must be a whole percentage from 1 to 99, or 0 for off`);
 	}
-	return { cacheRetention, compactBeforeExpiry, minContextTokens, compactAtPercent };
+	if (typeof compactAtTokens !== "number" || !Number.isInteger(compactAtTokens) || compactAtTokens < 0) {
+		throw new Error(`cachedCompaction.compactAtTokens in ${path} must be a whole number of tokens, or 0 for off`);
+	}
+	return { cacheRetention, compactBeforeExpiry, minContextTokens, compactAtPercent, compactAtTokens };
 }
 
 /** Writes the given keys into `cachedCompaction` in the global settings file, keeping every other setting, and returns the new config. */
@@ -87,8 +95,12 @@ export function summaryBudget(model: WindowedModel, promptTokens: number): numbe
 	return Number.isFinite(budget) ? Math.max(0, Math.floor(budget)) : undefined;
 }
 
-/** The context size at which compacting "when full" starts, or undefined when it is off or the window is unknown. */
-export function fullThreshold(model: WindowedModel, percent: number): number | undefined {
-	if (percent <= 0 || model.contextWindow <= 0) return undefined;
-	return Math.floor((model.contextWindow * percent) / 100);
+/**
+ * The context size at which compacting "when full" starts: `percent` of the model's window or the `tokens` cap,
+ * whichever comes first. Undefined when both are off, or only the percentage is set and the window is unknown.
+ */
+export function fullThreshold(model: WindowedModel, percent: number, tokens = 0): number | undefined {
+	const share = percent > 0 && model.contextWindow > 0 ? Math.floor((model.contextWindow * percent) / 100) : undefined;
+	if (tokens <= 0) return share;
+	return share === undefined ? tokens : Math.min(share, tokens);
 }

@@ -30,4 +30,5 @@ test("the log describes compacting when full", () => {
 	const base = { event: "full" as const, contextTokens: 905_000, threshold: 900_000, percent: 90, at, session: "s" };
 	assert.equal(describeTrace({ ...base, action: "compact" }), `${time} context at 905k, past 90% (900k): compacting`);
 	assert.equal(describeTrace({ ...base, action: "skip", reason: "Pi is busy or has queued messages" }), `${time} context at 905k, past 90% (900k): not compacting, Pi is busy or has queued messages`);
+	assert.equal(describeTrace({ ...base, contextTokens: 412_000, threshold: 400_000, tokens: 400_000, action: "compact" }), `${time} context at 412k, past the 400k-token cap: compacting`);
 });

@@ -4,6 +4,7 @@
 
 ### Added
 - **Compact when the context is full** — After a turn, once the context fills `compactAtPercent` of the model's window (90% by default), the session compacts from the warm cache while a summary still fits beside the conversation. Before, a 1M-token session reached Pi's own threshold with about 16k tokens left, the cached summary hit its output limit, and Pi's compaction ran at full price ($4.20 instead of about $0.45 on a 984k-token Opus session).
+- **Token cap for compacting when full** — `compactAtTokens` (off by default) compacts once the context holds that many tokens, on any model, at the cap or `compactAtPercent`, whichever comes first. A percentage is a different size on every window; a cap keeps the context, and so the price of each request's cache read, under one size everywhere.
 - **`/cached-compaction-settings`** (also `/cached-compaction settings`) — A menu for every setting (compact when full, compact before expiry and from what size, cache retention). Changes are saved to `cachedCompaction` in `~/.pi/agent/settings.json` and apply right away. `/cached-compaction` shows the "when full" mark for the current model.
 
 ### Fixed

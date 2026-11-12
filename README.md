@@ -77,6 +77,7 @@ jq -c 'select(.event == "compact") | {at, trigger, outcome, reason, cacheRead: .
 | See why a compaction didn't use the cache | expand its card with ctrl+o |
 | Change the settings from Pi | `/cached-compaction-settings` (or `/cached-compaction settings`) |
 | Compact earlier or later on big models | change "Compact when the context is" (`compactAtPercent`) |
+| Keep the context under a fixed size on every model | set "Or once it holds" (`compactAtTokens`) |
 | Stop compacting before the cache expires | `"compactBeforeExpiry": false` in [Settings](#settings) |
 | Compact before expiry only on bigger sessions | raise `minContextTokens` |
 | Keep Pi's 5-minute cache and its 1.25× writes on Anthropic | `"cacheRetention": "short"` |
@@ -91,6 +92,7 @@ Run `/cached-compaction-settings` (or `/cached-compaction settings`) to change t
 | Setting | Default | What it does |
 |---|---|---|
 | `compactAtPercent` | `90` | after a turn, compact once the context fills this share of the model's window; `0` turns it off |
+| `compactAtTokens` | `0` | also compact once the context holds this many tokens, on any model, whichever comes first; `0` turns it off |
 | `compactBeforeExpiry` | `true` | compact 20 s before the cache expires, when idle |
 | `minContextTokens` | `140000` | the smallest context worth compacting before expiry |
 | `cacheRetention` | `"long"` | ask for the longer cache in interactive sessions (2× writes on Anthropic and Kimi); `"short"` keeps Pi's default |
@@ -108,6 +110,8 @@ Run `/cached-compaction-settings` (or `/cached-compaction settings`) to change t
 A summary needs room in the context window next to the conversation it summarizes. Pi's own automatic compaction starts when only `compaction.reserveTokens` (16k by default) is left, which on a 1M-token model leaves too little room for the summary of a 980k-token conversation, so the cached request runs out of room and Pi's compaction runs instead, at full price.
 
 So after a turn, once the context fills `compactAtPercent` of the model's window (90% by default: 900k of 1M, leaving about 96k for the summary), the extension compacts right away, while the cache that turn just wrote is warm. It only does this when Pi is idle with nothing queued and Pi's auto-compaction is on. If the cached path isn't available, Pi's compaction runs, which is still cheaper now than at the very end. A run of tool calls that fills the window within one turn still ends in Pi's own compaction.
+
+**A token cap.** A percentage means a different size on every model: 70% is 700k tokens on a 1M-token model and 190k on a 272k one. `compactAtTokens` sets one size for all of them, and the session compacts at the cap or the percentage, whichever comes first. The reason to set it is cost rather than room: every request reads the whole context from the cache, so a 690k-token context costs about $0.14 per request at $0.20 per million cached tokens, before the model writes anything. A lower cap makes each request cheaper, and older detail is summarized sooner.
 
 The summary request may use the model's output limit, reduced so the conversation and the summary fit the window, as Pi's own compaction does. When less than 16k tokens would be left, the extension doesn't try the cached path and Pi's compaction runs.
 
