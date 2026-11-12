@@ -7,7 +7,7 @@ const TRACE_PATH = join(getAgentDir(), "cached-compaction.jsonl");
 export const TRACE_PATH_LABEL = TRACE_PATH.startsWith(homedir()) ? `~${TRACE_PATH.slice(homedir().length)}` : TRACE_PATH;
 const MAX_TRACE_BYTES = 5_000_000;
 
-export type Trigger = "manual" | "threshold" | "overflow" | "expiry";
+export type Trigger = "manual" | "threshold" | "overflow" | "expiry" | "full";
 
 export interface TraceUsage {
 	input: number;
@@ -59,9 +59,20 @@ export interface ExpiryTrace {
 	contextTokens?: number;
 }
 
-export type TraceEvent = CompactTrace | ResultTrace | FailedTrace | ExpiryTrace;
+export interface FullTrace {
+	event: "full";
+	action: "compact" | "skip";
+	reason?: string;
+	contextTokens: number;
+	threshold: number;
+	percent: number;
+	/** The compactAtTokens cap, when it is the mark that was passed instead of the percentage. */
+	tokens?: number;
+}
+
+export type TraceEvent = CompactTrace | ResultTrace | FailedTrace | ExpiryTrace | FullTrace;
 export type TraceRecord = TraceEvent & { at: string; session: string };
-const TRACE_EVENTS = new Set<string>(["compact", "result", "failed", "expiry"] satisfies TraceEvent["event"][]);
+const TRACE_EVENTS = new Set<string>(["compact", "result", "failed", "expiry", "full"] satisfies TraceEvent["event"][]);
 
 export function appendTrace(record: TraceRecord): void {
 	try {
@@ -97,6 +108,7 @@ const TRIGGER_LABELS: Record<Trigger, string> = {
 	threshold: "auto-compaction",
 	overflow: "overflow recovery",
 	expiry: "compact before expiry",
+	full: "compact when full",
 };
 
 function cacheShare(usage: TraceUsage): string {
@@ -165,6 +177,11 @@ export function describeTrace(record: TraceRecord): string {
 			return record.action === "compact"
 				? `${time} cache expires in ${record.secondsLeft}s: compacting ${formatTokens(record.contextTokens ?? 0)} tokens`
 				: `${time} cache expires in ${record.secondsLeft}s: not compacting, ${record.reason}`;
+		case "full": {
+			const mark = record.tokens === undefined ? `${record.percent}% (${formatTokens(record.threshold)})` : `the ${formatTokens(record.tokens)}-token cap`;
+			const where = `context at ${formatTokens(record.contextTokens)}, past ${mark}`;
+			return record.action === "compact" ? `${time} ${where}: compacting` : `${time} ${where}: not compacting, ${record.reason}`;
+		}
 	}
 }
 
