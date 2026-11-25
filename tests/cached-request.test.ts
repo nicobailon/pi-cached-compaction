@@ -44,6 +44,13 @@ test("a changed message or request field is reported with the text around the ch
 	assert.deepEqual(summaryPayload("not a payload", prefix, undefined, none), { reason: "the provider payload is not an object", sharedPrefix: false });
 });
 
+test("the summary request carries the system prompt that was sent, which an extension may have forced", () => {
+	const history = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
+	const captured = { model: "m", system: [{ type: "text", text: "sys\n\n## forced guidance" }], messages: history };
+	const rebuilt = { model: "m", system: [{ type: "text", text: "sys\n\n<mcp_servers>\n</mcp_servers>" }], messages: [...history, { role: "user", content: "summarize" }] };
+	assert.deepEqual(summaryPayload(rebuilt, { payload: captured, key: "messages" }, undefined, none), { payload: { ...rebuilt, system: captured.system }, sharedPrefix: false });
+});
+
 test("trailing messages are the branch entries after the captured transcript", () => {
 	const prompt = user("fix the bug", 1);
 	const reply = { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 2 } as AgentMessage;

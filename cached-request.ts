@@ -14,6 +14,8 @@ import {
 const CONTEXT_FREE_ENTRY_TYPES = new Set(["custom", "label", "session_info", "usage", "thinking_level_change"]);
 const MESSAGE_ARRAY_KEYS = ["messages", "input"] as const;
 const OUTPUT_LIMIT_KEYS = new Set(["max_tokens", "max_output_tokens", "max_completion_tokens"]);
+// A prompt an extension forces from before_agent_start reaches the request but not the transcript.
+const SENT_PROMPT_KEYS = ["system", "instructions"];
 const PI_PROMPT_CHARS = 1_200;
 
 export type Payload = Record<string, unknown>;
@@ -127,7 +129,7 @@ export function summaryPayload(
 	if (!isPlainObject(params)) return { reason: "the provider payload is not an object", sharedPrefix: false };
 	const shared = sharedKey ? withSharedPrefixCache(params, sharedKey) : params;
 	const sharedPrefix = shared !== params;
-	const missing = Object.keys(prefix.payload).filter((field) => !(field in shared));
+	const missing = Object.keys(prefix.payload).filter((field) => !(field in shared) || SENT_PROMPT_KEYS.includes(field));
 	const payload = { ...shared, ...Object.fromEntries(missing.map((field) => [field, prefix.payload[field]])) };
 	const mismatch = prefixMismatch(prefix.payload, payload, prefix.key, cacheNeutral);
 	return mismatch ? { ...mismatch, sharedPrefix } : { payload, sharedPrefix };
